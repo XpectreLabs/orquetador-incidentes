@@ -1,14 +1,35 @@
-﻿import "dotenv/config";
+﻿import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, ".env") });
+dotenv.config();
+
 import { tools } from "./tools-schema.js";
 import { TRIAGE_PROMPT, PLAN_PROMPT } from "./prompts.js";
 
 const API_BASE = process.env.API_BASE_URL || "http://localhost:3000";
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+
+function getApiKey() {
+  return process.env.ANTHROPIC_API_KEY;
+}
+
+function getModel() {
+  return process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+}
 
 async function callClaude(messages, useTools = false) {
+  const apiKey = getApiKey();
+  const model = getModel();
+
+  if (!apiKey || apiKey === "tu_api_key_aqui") {
+    throw new Error("ANTHROPIC_API_KEY no está configurada o es inválida en agent/.env");
+  }
+
   const body = {
-    model: MODEL,
+    model: model,
     max_tokens: 1024,
     messages
   };
@@ -18,7 +39,7 @@ async function callClaude(messages, useTools = false) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01"
     },
     body: JSON.stringify(body)
@@ -150,7 +171,6 @@ export async function runIncident(incidentId) {
       return { status: "escalado_sin_runbook" };
     }
   } else {
-    // Si ya tiene triage/plan previo (ej. reanudación tras aprobación)
     console.log(`[Agente] Reanudando ejecución para ${incidentId} (Estado: ${incident.status})...`);
     plan = { runbook_id: incident.runbook_id || "rollback_deployment_v1" };
   }
@@ -170,7 +190,6 @@ export async function runIncident(incidentId) {
   for (const step of runbook.steps) {
     // Si el paso es solicitar aprobación a humano
     if (step.tool_name === "notify_human" || (step.tool_name === "rollback_deployment" && runbook.requires_approval)) {
-      // Verificar si ya fue aprobado por el operador
       const statusRes = await fetch(`${API_BASE}/api/incidents/${incidentId}/status`);
       const { status } = await statusRes.json();
 
@@ -194,7 +213,6 @@ export async function runIncident(incidentId) {
         return { status: "esperando_aprobacion" };
       }
       
-      // Si ya está aprobado y es el paso notify_human, lo saltamos y continuamos al rollback
       if (step.tool_name === "notify_human") {
         continue;
       }
@@ -218,7 +236,7 @@ export async function runIncident(incidentId) {
       success: result.success !== false
     });
 
-    // Manejo de fallos / Circuit Breaker
+    // Circuit Breaker
     if (result.success === false) {
       console.warn(`[Agente] Tool ${step.tool_name} falló. Activando Circuit Breaker y escalando...`);
       await executeTool("close_incident", {
@@ -230,7 +248,7 @@ export async function runIncident(incidentId) {
     }
   }
 
-  // 7. Cierre exitoso del incidente
+  // 7. Cierre exitoso
   console.log(`[Agente] Incidente ${incidentId} resuelto exitosamente.`);
   await executeTool("close_incident", {
     incident_id: incidentId,

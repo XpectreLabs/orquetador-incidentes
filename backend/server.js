@@ -1,10 +1,15 @@
 ﻿import express from "express";
 import cors from "cors";
-import "dotenv/config";
+import dotenv from "dotenv";
 import fs from "fs";
+
+// Cargar variables tanto de backend como de agent
+dotenv.config();
+dotenv.config({ path: "../agent/.env" });
 
 import * as store from "./store.js";
 import * as sim from "./simulators.js";
+import { runIncident } from "../agent/agent.js";
 
 const app = express();
 app.use(cors());
@@ -23,7 +28,9 @@ function loadSeedData() {
 }
 loadSeedData();
 
-const runbooks = JSON.parse(fs.readFileSync("./runbooks.json", "utf-8"));
+function getRunbooks() {
+  return JSON.parse(fs.readFileSync("./runbooks.json", "utf-8"));
+}
 
 // ---------- ENDPOINTS PARA EL FRONTEND ----------
 
@@ -48,6 +55,20 @@ app.get("/api/incidents/:id/status", (req, res) => {
   res.json({ status: inc.status });
 });
 
+// Endpoint para disparar el agente directamente desde la UI
+app.post("/api/incidents/:id/run", async (req, res) => {
+  try {
+    const inc = store.getIncident(req.params.id);
+    if (!inc) return res.status(404).json({ error: "incidente no encontrado" });
+
+    const result = await runIncident(req.params.id);
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error("Error al ejecutar agente:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/incidents", (req, res) => {
   const id = `inc_${Date.now()}`;
   const incident = store.createIncident({
@@ -64,7 +85,7 @@ app.post("/api/incidents", (req, res) => {
   res.status(201).json(incident);
 });
 
-app.post("/api/incidents/:id/approve", (req, res) => {
+app.post("/api/incidents/:id/approve", async (req, res) => {
   const inc = store.updateIncident(req.params.id, { status: "ejecutando" });
   store.addEvent(req.params.id, {
     actor: "humano",
@@ -74,6 +95,16 @@ app.post("/api/incidents/:id/approve", (req, res) => {
     status_after: "ejecutando",
     success: true
   });
+
+  // Reanudar el agente automáticamente tras la aprobación
+  setTimeout(async () => {
+    try {
+      await runIncident(req.params.id);
+    } catch (e) {
+      console.error("Error al reanudar agente tras aprobación:", e);
+    }
+  }, 100);
+
   res.json(inc);
 });
 
@@ -91,10 +122,10 @@ app.post("/api/incidents/:id/reject", (req, res) => {
 });
 
 app.get("/api/runbooks", (req, res) => {
-  res.json({ runbooks });
+  res.json({ runbooks: getRunbooks() });
 });
 
-// Endpoint para reiniciar la demo en caliente
+// Endpoint para reiniciar la demo
 app.post("/api/reset", (req, res) => {
   store.incidents.clear();
   store.events.clear();
@@ -102,7 +133,7 @@ app.post("/api/reset", (req, res) => {
   res.json({ success: true, message: "Datos de demo restaurados" });
 });
 
-// ---------- ENDPOINTS QUE USA EL AGENTE (tools reales) ----------
+// ---------- ENDPOINTS QUE USA EL AGENTE (tools) ----------
 
 app.get("/tools/context/:id", (req, res) => {
   const inc = store.getIncident(req.params.id);
@@ -112,7 +143,7 @@ app.get("/tools/context/:id", (req, res) => {
 
 app.get("/tools/runbooks", (req, res) => {
   const { type, severity } = req.query;
-  let list = runbooks;
+  let list = getRunbooks();
   if (type) list = list.filter(r => r.applicable_types.includes(type));
   if (severity) list = list.filter(r => r.applicable_severities.includes(severity));
   res.json({ runbooks: list });
@@ -130,7 +161,6 @@ app.post("/tools/restart", async (req, res) => {
 
 app.post("/tools/rollback", async (req, res) => {
   const inc = store.getIncident(req.body.incident_id);
-  // Seguridad: rollback SIEMPRE requiere que el incidente ya esté aprobado
   if (inc && inc.status !== "ejecutando" && inc.status !== "resuelto") {
     return res.status(403).json({ error: "Acción de rollback requiere aprobación previa del operador" });
   }
@@ -151,7 +181,6 @@ app.post("/tools/notify_human", (req, res) => {
 app.post("/tools/log", (req, res) => {
   const { incident_id, actor, event_type, payload, status_before, status_after } = req.body;
   
-  // Actualizar propiedades del incidente en el store si vienen en el log
   const updates = {};
   if (status_after) updates.status = status_after;
   

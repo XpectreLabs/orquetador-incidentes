@@ -42,6 +42,50 @@ if (resetBtn) {
   });
 }
 
+// Botón de Ejecución del Agente IA desde la Web
+const runAgentBtn = document.getElementById("btn-run-agent");
+if (runAgentBtn) {
+  runAgentBtn.addEventListener("click", async () => {
+    if (!selectedIncidentId) return;
+
+    const btnText = document.getElementById("run-btn-text");
+    runAgentBtn.disabled = true;
+    runAgentBtn.classList.add("loading");
+    if (btnText) btnText.textContent = "Agente analizando...";
+    showToast("🤖 Agente IA iniciado...");
+
+    try {
+      const res = await fetch(`${API_BASE}/api/incidents/${selectedIncidentId}/run`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      
+      if (data.success) {
+        if (data.result.status === "esperando_aprobacion") {
+          showToast("⚠ Agente pausado: requiere autorización de operador");
+        } else if (data.result.status === "resuelto") {
+          showToast("✓ Incidente remediado y resuelto exitosamente");
+        } else if (data.result.status === "fallido_escalado") {
+          showToast("🚨 Circuit breaker activado: incidente escalado");
+        } else {
+          showToast(`ℹ Estado: ${data.result.status}`);
+        }
+      } else {
+        showToast("✕ Error: " + (data.error || "Fallo en ejecución"));
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("✕ Error al conectar con el backend");
+    } finally {
+      runAgentBtn.disabled = false;
+      runAgentBtn.classList.remove("loading");
+      if (btnText) btnText.textContent = "Ejecutar Agente IA";
+      await loadDetail(selectedIncidentId);
+      await loadQueue();
+    }
+  });
+}
+
 // Filter buttons
 document.querySelectorAll(".filter-btn").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -160,6 +204,18 @@ async function loadDetail(id) {
     const statusEl = document.getElementById("detail-status");
     statusEl.textContent = inc.status.replace(/_/g, " ");
     statusEl.className = `chip-status-${inc.status} chip`;
+
+    // Button text adjustment based on status
+    const btnText = document.getElementById("run-btn-text");
+    if (btnText) {
+      if (inc.status === "resuelto") {
+        btnText.textContent = "Volver a Ejecutar";
+      } else if (inc.status === "pendiente_aprobacion") {
+        btnText.textContent = "Reanudar Agente";
+      } else {
+        btnText.textContent = "Ejecutar Agente IA";
+      }
+    }
 
     // Confidence Bar (from triage event)
     const triageEvent = events.find(e => e.event_type === "triage");
