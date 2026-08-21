@@ -1,0 +1,42 @@
+[
+  {
+    "id": "restart_service_v1",
+    "name": "Reinicio de servicio",
+    "applicable_types": ["infraestructura", "aplicacion"],
+    "applicable_severities": ["SEV3", "SEV4"],
+    "risk_level": "medio",
+    "requires_approval": false,
+    "steps": [
+      { "step_name": "verificar_estado", "tool_name": "check_system_status" },
+      { "step_name": "reiniciar", "tool_name": "restart_service" },
+      { "step_name": "verificar_salud", "tool_name": "check_system_status" }
+    ]
+  },
+  {
+    "id": "rollback_deployment_v1",
+    "name": "Rollback de despliegue",
+    "applicable_types": ["despliegue", "aplicacion"],
+    "applicable_severities": ["SEV1", "SEV2"],
+    "risk_level": "alto",
+    "requires_approval": true,
+    "steps": [
+      { "step_name": "verificar_estado", "tool_name": "check_system_status" },
+      { "step_name": "solicitar_aprobacion", "tool_name": "notify_human" },
+      { "step_name": "rollback", "tool_name": "rollback_deployment" },
+      { "step_name": "verificar_salud", "tool_name": "check_system_status" }
+    ]
+  },
+  {
+    "id": "scale_resource_v1",
+    "name": "Escalado de recursos",
+    "applicable_types": ["infraestructura", "aplicacion"],
+    "applicable_severities": ["SEV2", "SEV3"],
+    "risk_level": "medio",
+    "requires_approval": false,
+    "steps": [
+      { "step_name": "verificar_estado", "tool_name": "check_system_status" },
+      { "step_name": "escalar", "tool_name": "scale_resource" },
+      { "step_name": "verificar_salud", "tool_name": "check_system_status" }
+    ]
+  }
+]

@@ -1,0 +1,46 @@
+[
+  {
+    "id": "inc_001",
+    "title": "Servicio de checkout no responde (503)",
+    "description": "El servicio 'checkout-api' devuelve 503 desde hace 3 minutos. Health check falla. Sin cambios de deploy recientes.",
+    "service_affected": "checkout-api",
+    "status": "nuevo",
+    "severity": null,
+    "type": null,
+    "confidence": null,
+    "runbook_id": null
+  },
+  {
+    "id": "inc_002",
+    "title": "Latencia alta en pagos tras nuevo deploy",
+    "description": "El servicio 'payments-service' fue desplegado hace 10 minutos (v2.3.1). Latencia p95 subió de 200ms a 4s. Error rate 12%.",
+    "service_affected": "payments-service",
+    "status": "nuevo",
+    "severity": null,
+    "type": null,
+    "confidence": null,
+    "runbook_id": null
+  },
+  {
+    "id": "inc_003b",
+    "title": "Uso de CPU sostenido al 95% en recommendations-engine",
+    "description": "El servicio 'recommendations-engine' lleva 15 minutos con CPU al 95%. Tráfico normal, sin errores todavía.",
+    "service_affected": "recommendations-engine",
+    "status": "nuevo",
+    "severity": null,
+    "type": null,
+    "confidence": null,
+    "runbook_id": null
+  },
+  {
+    "id": "inc_003",
+    "title": "Restart fallido de servicio de notificaciones",
+    "description": "El servicio 'notifications-worker' no responde. Se requiere reinicio, ya se intentó antes sin éxito.",
+    "service_affected": "notifications-worker",
+    "status": "nuevo",
+    "severity": null,
+    "type": null,
+    "confidence": null,
+    "runbook_id": null
+  }
+]

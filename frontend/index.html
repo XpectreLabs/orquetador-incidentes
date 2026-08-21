@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>ANCLA SISTEMAS — Orquestador de Incidentes</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>ANCLA SISTEMAS</h1>
+    <p>Orquestador de incidentes</p>
+  </header>
+
+  <main>
+    <section id="queue-section">
+      <h2>Cola de incidentes</h2>
+      <div id="queue-list"></div>
+    </section>
+
+    <section id="detail-section">
+      <h2>Detalle / Timeline</h2>
+      <div id="incident-detail">Selecciona un incidente de la cola</div>
+      <div id="timeline"></div>
+      <div id="approval-panel" style="display:none;">
+        <p>Esta acción requiere aprobación:</p>
+        <button id="approve-btn">Aprobar</button>
+        <button id="reject-btn">Rechazar</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
