@@ -20,8 +20,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Servir archivos estáticos del Frontend
-app.use(express.static(path.join(__dirname, "../frontend")));
+const FRONTEND_PATH = path.resolve(__dirname, "../frontend");
+
+// Servir archivos estáticos del Frontend (CSS, JS, imágenes)
+app.use(express.static(FRONTEND_PATH));
 
 const PORT = process.env.PORT || 3000;
 
@@ -39,6 +41,11 @@ loadSeedData();
 function getRunbooks() {
   return JSON.parse(fs.readFileSync(path.join(__dirname, "./runbooks.json"), "utf-8"));
 }
+
+// Ruta principal para servir el Frontend
+app.get("/", (req, res) => {
+  res.sendFile(path.join(FRONTEND_PATH, "index.html"));
+});
 
 // ---------- ENDPOINTS PARA EL FRONTEND ----------
 
@@ -217,11 +224,11 @@ app.post("/tools/close/:id", (req, res) => {
   res.json(inc);
 });
 
-// Ruta comodín para que cualquier ruta sirva el index.html del frontend
+// Ruta comodín para redirigir todo al index.html
 app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/index.html"));
+  res.sendFile(path.join(FRONTEND_PATH, "index.html"));
 });
 
 app.listen(PORT, () => {
-  console.log(`Backend corriendo en http://localhost:${PORT}`);
+  console.log(`Backend corriendo en puerto ${PORT}`);
 });
