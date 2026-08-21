@@ -10,10 +10,10 @@ dotenv.config();
 import { tools } from "./tools-schema.js";
 import { TRIAGE_PROMPT, PLAN_PROMPT } from "./prompts.js";
 
+// Conectar siempre vía loopback local en el puerto del servidor actual
 function getApiBase() {
-  if (process.env.API_BASE_URL) return process.env.API_BASE_URL;
   const port = process.env.PORT || 3000;
-  return `http://localhost:${port}`;
+  return `http://127.0.0.1:${port}`;
 }
 
 function getApiKey() {
