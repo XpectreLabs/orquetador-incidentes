@@ -10,7 +10,11 @@ dotenv.config();
 import { tools } from "./tools-schema.js";
 import { TRIAGE_PROMPT, PLAN_PROMPT } from "./prompts.js";
 
-const API_BASE = process.env.API_BASE_URL || "http://localhost:3000";
+function getApiBase() {
+  if (process.env.API_BASE_URL) return process.env.API_BASE_URL;
+  const port = process.env.PORT || 3000;
+  return `http://localhost:${port}`;
+}
 
 function getApiKey() {
   return process.env.ANTHROPIC_API_KEY;
@@ -25,7 +29,7 @@ async function callClaude(messages, useTools = false) {
   const model = getModel();
 
   if (!apiKey || apiKey === "tu_api_key_aqui") {
-    throw new Error("ANTHROPIC_API_KEY no está configurada o es inválida en agent/.env");
+    throw new Error("ANTHROPIC_API_KEY no está configurada en las variables de entorno");
   }
 
   const body = {
@@ -69,8 +73,9 @@ export async function triage(incident) {
 
 // ---------- 2. PLAN ----------
 export async function planRunbook(incident, triageResult) {
+  const apiBase = getApiBase();
   const runbooksRes = await fetch(
-    `${API_BASE}/tools/runbooks?type=${triageResult.type}&severity=${triageResult.severity}`
+    `${apiBase}/tools/runbooks?type=${triageResult.type}&severity=${triageResult.severity}`
   );
   const { runbooks } = await runbooksRes.json();
 
@@ -87,6 +92,7 @@ export async function planRunbook(incident, triageResult) {
 
 // ---------- 3. TOOL EXECUTION ----------
 async function executeTool(name, input) {
+  const apiBase = getApiBase();
   const endpointMap = {
     check_system_status: "/tools/check_status",
     restart_service: "/tools/restart",
@@ -97,7 +103,7 @@ async function executeTool(name, input) {
     close_incident: `/tools/close/${input.incident_id}`
   };
   const endpoint = endpointMap[name];
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const res = await fetch(`${apiBase}${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input)
@@ -107,8 +113,10 @@ async function executeTool(name, input) {
 
 // ---------- 4. LOOP DE EJECUCIÓN SUPERVISADA ----------
 export async function runIncident(incidentId) {
+  const apiBase = getApiBase();
+  
   // 1. Obtener contexto actual
-  const contextRes = await fetch(`${API_BASE}/tools/context/${incidentId}`);
+  const contextRes = await fetch(`${apiBase}/tools/context/${incidentId}`);
   if (!contextRes.ok) {
     throw new Error(`Incidente ${incidentId} no encontrado en backend`);
   }
@@ -176,7 +184,7 @@ export async function runIncident(incidentId) {
   }
 
   // 5. Cargar runbook a ejecutar
-  const runbooksRes = await fetch(`${API_BASE}/tools/runbooks`);
+  const runbooksRes = await fetch(`${apiBase}/tools/runbooks`);
   const { runbooks } = await runbooksRes.json();
   const runbook = runbooks.find(r => r.id === plan.runbook_id);
 
@@ -188,9 +196,8 @@ export async function runIncident(incidentId) {
 
   // 6. Ejecutar cada paso del runbook
   for (const step of runbook.steps) {
-    // Si el paso es solicitar aprobación a humano
     if (step.tool_name === "notify_human" || (step.tool_name === "rollback_deployment" && runbook.requires_approval)) {
-      const statusRes = await fetch(`${API_BASE}/api/incidents/${incidentId}/status`);
+      const statusRes = await fetch(`${apiBase}/api/incidents/${incidentId}/status`);
       const { status } = await statusRes.json();
 
       if (status !== "ejecutando" && status !== "resuelto") {
