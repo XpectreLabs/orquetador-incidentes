@@ -1,4 +1,4 @@
-﻿const API_BASE = "http://localhost:3000";
+﻿const API_BASE = window.location.protocol.startsWith("http") ? "" : "http://localhost:3000";
 
 let selectedIncidentId = null;
 let currentFilter = "all";

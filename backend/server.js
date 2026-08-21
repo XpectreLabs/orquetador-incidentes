@@ -2,10 +2,15 @@
 import cors from "cors";
 import dotenv from "dotenv";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Cargar variables tanto de backend como de agent
 dotenv.config();
-dotenv.config({ path: "../agent/.env" });
+dotenv.config({ path: path.join(__dirname, "../agent/.env") });
 
 import * as store from "./store.js";
 import * as sim from "./simulators.js";
@@ -15,11 +20,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Servir archivos estáticos del Frontend
+app.use(express.static(path.join(__dirname, "../frontend")));
+
 const PORT = process.env.PORT || 3000;
 
 // --- Cargar seed data al arrancar ---
 function loadSeedData() {
-  const seed = JSON.parse(fs.readFileSync("./seed-incidents.json", "utf-8"));
+  const seed = JSON.parse(fs.readFileSync(path.join(__dirname, "./seed-incidents.json"), "utf-8"));
   seed.forEach(inc => store.createIncident({
     ...inc,
     created_at: new Date().toISOString(),
@@ -29,7 +37,7 @@ function loadSeedData() {
 loadSeedData();
 
 function getRunbooks() {
-  return JSON.parse(fs.readFileSync("./runbooks.json", "utf-8"));
+  return JSON.parse(fs.readFileSync(path.join(__dirname, "./runbooks.json"), "utf-8"));
 }
 
 // ---------- ENDPOINTS PARA EL FRONTEND ----------
@@ -207,6 +215,11 @@ app.post("/tools/close/:id", (req, res) => {
     resolved_at: new Date().toISOString()
   });
   res.json(inc);
+});
+
+// Ruta comodín para que cualquier ruta sirva el index.html del frontend
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../frontend/index.html"));
 });
 
 app.listen(PORT, () => {
