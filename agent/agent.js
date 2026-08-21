@@ -1,6 +1,6 @@
-import "dotenv/config";
+﻿import "dotenv/config";
 import { tools } from "./tools-schema.js";
-import { TRIAGE_PROMPT, PLAN_PROMPT, EXECUTION_SYSTEM_PROMPT } from "./prompts.js";
+import { TRIAGE_PROMPT, PLAN_PROMPT } from "./prompts.js";
 
 const API_BASE = process.env.API_BASE_URL || "http://localhost:3000";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -23,11 +23,16 @@ async function callClaude(messages, useTools = false) {
     },
     body: JSON.stringify(body)
   });
+  
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Anthropic API Error (${res.status}): ${errText}`);
+  }
+
   return res.json();
 }
 
 function extractJSON(text) {
-  // Los prompts piden JSON puro, pero por si acaso limpiamos posibles fences.
   const clean = text.replace(/```json|```/g, "").trim();
   return JSON.parse(clean);
 }
@@ -48,8 +53,8 @@ export async function planRunbook(incident, triageResult) {
   );
   const { runbooks } = await runbooksRes.json();
 
-  if (runbooksRes.status !== 200 || runbooks.length === 0) {
-    return { runbook_id: null, reasoning: "No hay runbook aplicable en el catálogo." };
+  if (!runbooks || runbooks.length === 0) {
+    return { runbook_id: null, reasoning: "No existe un runbook aplicable para este tipo/severidad en el catálogo." };
   }
 
   const response = await callClaude([
@@ -59,7 +64,7 @@ export async function planRunbook(incident, triageResult) {
   return extractJSON(text);
 }
 
-// ---------- 3. TOOL EXECUTION (llama al backend real) ----------
+// ---------- 3. TOOL EXECUTION ----------
 async function executeTool(name, input) {
   const endpointMap = {
     check_system_status: "/tools/check_status",
@@ -81,76 +86,122 @@ async function executeTool(name, input) {
 
 // ---------- 4. LOOP DE EJECUCIÓN SUPERVISADA ----------
 export async function runIncident(incidentId) {
-  // 1. Obtener contexto
+  // 1. Obtener contexto actual
   const contextRes = await fetch(`${API_BASE}/tools/context/${incidentId}`);
+  if (!contextRes.ok) {
+    throw new Error(`Incidente ${incidentId} no encontrado en backend`);
+  }
   const incident = await contextRes.json();
 
-  // 2. Triage
-  const triageResult = await triage(incident);
-  await executeTool("log_action", {
-    incident_id: incidentId,
-    actor: "agente",
-    event_type: "triage",
-    payload: triageResult,
-    status_before: "nuevo",
-    status_after: "en_triage"
-  });
+  let triageResult;
+  let plan;
 
-  // 3. Umbral de confianza -> revisión humana si es baja
-  if (triageResult.confidence < Number(process.env.CONFIDENCE_THRESHOLD || 0.6)) {
-    await executeTool("notify_human", {
-      incident_id: incidentId,
-      reason: "Confianza de triage insuficiente para auto-remediar.",
-      urgency: "media"
-    });
+  // Si es un incidente nuevo, hacemos triage y plan inicial
+  if (incident.status === "nuevo" || !incident.severity) {
+    console.log(`[Agente] Iniciando Triage con Claude para ${incidentId}...`);
+    triageResult = await triage(incident);
+
     await executeTool("log_action", {
       incident_id: incidentId,
-      actor: "sistema",
-      event_type: "escalado",
-      payload: { motivo: "baja_confianza" },
-      status_before: "en_triage",
-      status_after: "pendiente_aprobacion"
+      actor: "agente",
+      event_type: "triage",
+      payload: triageResult,
+      status_before: "nuevo",
+      status_after: "en_triage"
     });
-    return { status: "escalado_por_confianza" };
-  }
 
-  // 4. Plan de runbook
-  const plan = await planRunbook(incident, triageResult);
-  await executeTool("log_action", {
-    incident_id: incidentId,
-    actor: "agente",
-    event_type: "plan_generado",
-    payload: plan,
-    status_before: "en_triage",
-    status_after: plan.runbook_id ? "ejecutando" : "pendiente_aprobacion"
-  });
+    // Validar umbral de confianza
+    const threshold = Number(process.env.CONFIDENCE_THRESHOLD || 0.6);
+    if (triageResult.confidence < threshold) {
+      await executeTool("notify_human", {
+        incident_id: incidentId,
+        reason: `Confianza de triage (${Math.round(triageResult.confidence * 100)}%) por debajo del umbral mínimo (${Math.round(threshold * 100)}%).`,
+        urgency: "media"
+      });
+      await executeTool("log_action", {
+        incident_id: incidentId,
+        actor: "sistema",
+        event_type: "escalado",
+        payload: { motivo: "baja_confianza_triage", triage: triageResult },
+        status_before: "en_triage",
+        status_after: "pendiente_aprobacion"
+      });
+      return { status: "escalado_por_confianza" };
+    }
 
-  if (!plan.runbook_id) {
-    await executeTool("notify_human", {
+    console.log(`[Agente] Planificando Runbook para ${incidentId}...`);
+    plan = await planRunbook(incident, triageResult);
+
+    await executeTool("log_action", {
       incident_id: incidentId,
-      reason: "Ningún runbook del catálogo aplica.",
-      urgency: "media"
+      actor: "agente",
+      event_type: "plan_generado",
+      payload: plan,
+      status_before: "en_triage",
+      status_after: plan.runbook_id ? "en_triage" : "pendiente_aprobacion"
     });
-    return { status: "escalado_sin_runbook" };
+
+    if (!plan.runbook_id) {
+      await executeTool("notify_human", {
+        incident_id: incidentId,
+        reason: "Ningún runbook del catálogo es aplicable al incidente.",
+        urgency: "alta"
+      });
+      return { status: "escalado_sin_runbook" };
+    }
+  } else {
+    // Si ya tiene triage/plan previo (ej. reanudación tras aprobación)
+    console.log(`[Agente] Reanudando ejecución para ${incidentId} (Estado: ${incident.status})...`);
+    plan = { runbook_id: incident.runbook_id || "rollback_deployment_v1" };
   }
 
-  // 5. Ejecución vía tool-use loop con Claude
-  // (versión simplificada para 2 horas: loop directo, sin function-calling completo de Claude,
-  //  usando el runbook como guía determinística — más rápido de asegurar en poco tiempo)
+  // 5. Cargar runbook a ejecutar
   const runbooksRes = await fetch(`${API_BASE}/tools/runbooks`);
   const { runbooks } = await runbooksRes.json();
   const runbook = runbooks.find(r => r.id === plan.runbook_id);
 
+  if (!runbook) {
+    throw new Error(`Runbook ${plan.runbook_id} no encontrado en catálogo`);
+  }
+
+  console.log(`[Agente] Ejecutando pasos de runbook '${runbook.name}'...`);
+
+  // 6. Ejecutar cada paso del runbook
   for (const step of runbook.steps) {
-    if (step.tool_name === "rollback_deployment" && runbook.requires_approval) {
-      // Verificar que ya fue aprobado antes de continuar (si no, se detiene aquí)
+    // Si el paso es solicitar aprobación a humano
+    if (step.tool_name === "notify_human" || (step.tool_name === "rollback_deployment" && runbook.requires_approval)) {
+      // Verificar si ya fue aprobado por el operador
       const statusRes = await fetch(`${API_BASE}/api/incidents/${incidentId}/status`);
       const { status } = await statusRes.json();
-      if (status !== "ejecutando") {
+
+      if (status !== "ejecutando" && status !== "resuelto") {
+        if (step.tool_name === "notify_human") {
+          await executeTool("notify_human", {
+            incident_id: incidentId,
+            reason: `Runbook '${runbook.name}' contiene acciones de alto riesgo (Rollback) y requiere autorización de un operador.`,
+            urgency: "alta"
+          });
+          await executeTool("log_action", {
+            incident_id: incidentId,
+            actor: "agente",
+            event_type: "solicitud_aprobacion",
+            payload: { runbook: runbook.id, riesgo: runbook.risk_level, step: step.step_name },
+            status_before: status,
+            status_after: "pendiente_aprobacion"
+          });
+        }
+        console.log(`[Agente] Pausado: esperando aprobación humana para ${incidentId}.`);
         return { status: "esperando_aprobacion" };
+      }
+      
+      // Si ya está aprobado y es el paso notify_human, lo saltamos y continuamos al rollback
+      if (step.tool_name === "notify_human") {
+        continue;
       }
     }
 
+    console.log(`[Agente] Ejecutando tool: ${step.tool_name} (${step.step_name})...`);
+    
     const result = await executeTool(step.tool_name, {
       incident_id: incidentId,
       service_affected: incident.service_affected
@@ -167,20 +218,24 @@ export async function runIncident(incidentId) {
       success: result.success !== false
     });
 
+    // Manejo de fallos / Circuit Breaker
     if (result.success === false) {
+      console.warn(`[Agente] Tool ${step.tool_name} falló. Activando Circuit Breaker y escalando...`);
       await executeTool("close_incident", {
         incident_id: incidentId,
         final_status: "escalado",
-        summary: `Paso "${step.step_name}" falló. Escalado a revisión humana.`
+        summary: `Paso "${step.step_name}" falló con error: ${result.message}. Escalado a guardia SRE humano.`
       });
-      return { status: "fallido_escalado" };
+      return { status: "fallido_escalado", error: result.message };
     }
   }
 
+  // 7. Cierre exitoso del incidente
+  console.log(`[Agente] Incidente ${incidentId} resuelto exitosamente.`);
   await executeTool("close_incident", {
     incident_id: incidentId,
     final_status: "resuelto",
-    summary: `Runbook ${runbook.id} ejecutado exitosamente.`
+    summary: `Runbook '${runbook.name}' ejecutado exitosamente. Servicio restablecido a estado healthy.`
   });
 
   return { status: "resuelto" };

@@ -1,4 +1,4 @@
-import express from "express";
+﻿import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import fs from "fs";
@@ -13,12 +13,15 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // --- Cargar seed data al arrancar ---
-const seed = JSON.parse(fs.readFileSync("./seed-incidents.json", "utf-8"));
-seed.forEach(inc => store.createIncident({
-  ...inc,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString()
-}));
+function loadSeedData() {
+  const seed = JSON.parse(fs.readFileSync("./seed-incidents.json", "utf-8"));
+  seed.forEach(inc => store.createIncident({
+    ...inc,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }));
+}
+loadSeedData();
 
 const runbooks = JSON.parse(fs.readFileSync("./runbooks.json", "utf-8"));
 
@@ -66,7 +69,7 @@ app.post("/api/incidents/:id/approve", (req, res) => {
   store.addEvent(req.params.id, {
     actor: "humano",
     event_type: "aprobacion_otorgada",
-    payload: { approved_by: req.body.approved_by || "demo_user" },
+    payload: { approved_by: req.body.approved_by || "Operador SRE (Demo)" },
     status_before: "pendiente_aprobacion",
     status_after: "ejecutando",
     success: true
@@ -79,7 +82,7 @@ app.post("/api/incidents/:id/reject", (req, res) => {
   store.addEvent(req.params.id, {
     actor: "humano",
     event_type: "aprobacion_rechazada",
-    payload: { rejected_by: req.body.rejected_by || "demo_user" },
+    payload: { rejected_by: req.body.rejected_by || "Operador SRE (Demo)" },
     status_before: "pendiente_aprobacion",
     status_after: "escalado",
     success: false
@@ -91,9 +94,15 @@ app.get("/api/runbooks", (req, res) => {
   res.json({ runbooks });
 });
 
+// Endpoint para reiniciar la demo en caliente
+app.post("/api/reset", (req, res) => {
+  store.incidents.clear();
+  store.events.clear();
+  loadSeedData();
+  res.json({ success: true, message: "Datos de demo restaurados" });
+});
+
 // ---------- ENDPOINTS QUE USA EL AGENTE (tools reales) ----------
-// El agente llama estos endpoints en vez de tocar simulators.js directamente,
-// así el backend siempre controla qué se ejecuta (ver punto de seguridad del diseño).
 
 app.get("/tools/context/:id", (req, res) => {
   const inc = store.getIncident(req.params.id);
@@ -122,8 +131,8 @@ app.post("/tools/restart", async (req, res) => {
 app.post("/tools/rollback", async (req, res) => {
   const inc = store.getIncident(req.body.incident_id);
   // Seguridad: rollback SIEMPRE requiere que el incidente ya esté aprobado
-  if (inc && inc.status !== "ejecutando") {
-    return res.status(403).json({ error: "acción requiere aprobación previa" });
+  if (inc && inc.status !== "ejecutando" && inc.status !== "resuelto") {
+    return res.status(403).json({ error: "Acción de rollback requiere aprobación previa del operador" });
   }
   const result = await sim.rollbackDeployment(req.body);
   res.json(result);
@@ -140,7 +149,26 @@ app.post("/tools/notify_human", (req, res) => {
 });
 
 app.post("/tools/log", (req, res) => {
-  const event = store.addEvent(req.body.incident_id, req.body);
+  const { incident_id, actor, event_type, payload, status_before, status_after } = req.body;
+  
+  // Actualizar propiedades del incidente en el store si vienen en el log
+  const updates = {};
+  if (status_after) updates.status = status_after;
+  
+  if (event_type === "triage" && payload) {
+    if (payload.severity) updates.severity = payload.severity;
+    if (payload.type) updates.type = payload.type;
+    if (payload.confidence !== undefined) updates.confidence = payload.confidence;
+  }
+  if (event_type === "plan_generado" && payload) {
+    if (payload.runbook_id) updates.runbook_id = payload.runbook_id;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    store.updateIncident(incident_id, updates);
+  }
+
+  const event = store.addEvent(incident_id, req.body);
   res.json({ event_id: event.id, logged: true });
 });
 

@@ -1,33 +1,135 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ANCLA SISTEMAS — Orquestador de Incidentes</title>
+  <meta name="description" content="Panel de gestión y orquestación de incidentes en tiempo real. Triage automatizado con IA.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>ANCLA SISTEMAS</h1>
-    <p>Orquestador de incidentes</p>
+
+  <!-- Header -->
+  <header id="main-header">
+    <div class="header-left">
+      <div class="logo-mark">⬡</div>
+      <div class="header-text">
+        <span class="brand">ANCLA SISTEMAS</span>
+        <span class="brand-sub">Orquestador de Incidentes (AIOps)</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="btn-reset-demo" class="btn-secondary-sm" title="Restaurar datos de prueba iniciales">
+        <span>↺</span> Reiniciar Demo
+      </button>
+      <div class="status-indicator" id="server-status">
+        <span class="dot"></span>
+        <span class="status-label">EN LÍNEA</span>
+      </div>
+      <div class="header-clock" id="clock"></div>
+    </div>
   </header>
 
-  <main>
-    <section id="queue-section">
-      <h2>Cola de incidentes</h2>
-      <div id="queue-list"></div>
-    </section>
+  <!-- Main Layout -->
+  <main id="main-grid">
 
-    <section id="detail-section">
-      <h2>Detalle / Timeline</h2>
-      <div id="incident-detail">Selecciona un incidente de la cola</div>
-      <div id="timeline"></div>
-      <div id="approval-panel" style="display:none;">
-        <p>Esta acción requiere aprobación:</p>
-        <button id="approve-btn">Aprobar</button>
-        <button id="reject-btn">Rechazar</button>
+    <!-- Left Column: Queue -->
+    <aside id="queue-panel">
+      <div class="panel-header">
+        <h2 class="panel-title">Cola de Incidentes</h2>
+        <span class="badge" id="incident-count">0</span>
+      </div>
+
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="all" id="filter-all">Todos</button>
+        <button class="filter-btn" data-filter="nuevo" id="filter-nuevo">Nuevos</button>
+        <button class="filter-btn" data-filter="ejecutando" id="filter-ejecutando">Activos</button>
+        <button class="filter-btn" data-filter="pendiente_aprobacion" id="filter-pendiente">Pendientes</button>
+        <button class="filter-btn" data-filter="resuelto" id="filter-resueltos">Resueltos</button>
+      </div>
+
+      <div id="queue-list" class="queue-list"></div>
+    </aside>
+
+    <!-- Right Column: Detail & Timeline -->
+    <section id="detail-panel">
+
+      <!-- Empty state -->
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">◈</div>
+        <p class="empty-title">Selecciona un incidente</p>
+        <p class="empty-sub">Haz clic en cualquier incidente de la cola para ver su análisis de IA, diagnóstico y timeline de remediación.</p>
+      </div>
+
+      <!-- Incident Detail (hidden initially) -->
+      <div id="detail-content" class="detail-content" style="display:none;">
+
+        <div class="detail-header">
+          <div class="detail-top-bar">
+            <div class="detail-meta-row">
+              <span class="sev-chip" id="detail-sev">—</span>
+              <span class="type-chip" id="detail-type">—</span>
+              <span class="status-chip" id="detail-status">—</span>
+            </div>
+          </div>
+
+          <h3 id="detail-title" class="detail-title"></h3>
+          <p id="detail-desc" class="detail-desc"></p>
+          
+          <div class="detail-service-row">
+            <span class="label">Servicio afectado:</span>
+            <span class="mono" id="detail-service"></span>
+          </div>
+        </div>
+
+        <!-- Confidence bar -->
+        <div class="confidence-row" id="confidence-row" style="display:none;">
+          <span class="label">Confianza de Triage:</span>
+          <div class="confidence-bar">
+            <div class="confidence-fill" id="confidence-fill"></div>
+          </div>
+          <span class="mono" id="confidence-val"></span>
+        </div>
+
+        <!-- Approval Panel (Only when pending approval) -->
+        <div id="approval-panel" style="display:none;" class="approval-panel">
+          <div class="approval-icon">⚠</div>
+          <div class="approval-text">
+            <strong>Autorización de Operador Requerida</strong>
+            <p>El agente identificó una acción de alto riesgo (Rollback a versión estable anterior). Requiere autorización humana para ejecutarse.</p>
+          </div>
+          <div class="approval-actions">
+            <button id="approve-btn" class="btn-approve">
+              <span>✓</span> Aprobar Rollback
+            </button>
+            <button id="reject-btn" class="btn-reject">
+              <span>✕</span> Rechazar y Escalar
+            </button>
+          </div>
+        </div>
+
+        <!-- Timeline Section -->
+        <div class="timeline-section">
+          <div class="timeline-header">
+            <h4 class="panel-title">Trazabilidad de Remediación (Audit Log)</h4>
+            <span class="badge" id="event-count">0</span>
+          </div>
+          <div id="timeline" class="timeline"></div>
+          <div id="timeline-empty" class="timeline-empty">
+            <span>Sin eventos registrados</span>
+          </div>
+        </div>
+
       </div>
     </section>
+
   </main>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast" style="display:none;"></div>
 
   <script src="app.js"></script>
 </body>
